@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 /*! # Two Dimensional Plane
-Continuous 2D data structure, infinitely big.
+Continuous 2D data structure representing infinite 2d plane.
 The purpose of this crate is to provide a universal data structure that is faster
 than a naive`HashMap<(i32, i32), T>`
 solution.

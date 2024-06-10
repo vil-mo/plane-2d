@@ -1,9 +1,17 @@
 [package]
 name = "plane-2d"
 version = "0.1.0"
+authors = ["vil'mo"]
 edition = "2021"
+description = "Continuous 2D data structure representing infinite 2d plane."
+keywords = ["data-structure-2D", "data-structure"]
+categories = ["science", "data-structures"]
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vil-mo/plane-2d"
+documentation = "https://docs.rs/plane-2d"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 
 [features]
 default = ["i32"]
