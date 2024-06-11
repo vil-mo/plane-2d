@@ -1,4 +1,4 @@
-#![warn(clippy::all)]
+#![warn(clippy::restriction)]
 /*! # Two Dimensional Plane
 Continuous 2D data structure representing infinite 2d plane.
 The purpose of this crate is to provide a universal data structure that is faster
@@ -101,7 +101,7 @@ pub struct Plane<T: Default, S: Default + BuildHasher = RandomState> {
     default_value: Immutable<T>,
 }
 
-impl<T: Default, S: Default + BuildHasher> Default for Plane<T, S> {
+impl<T: Default> Default for Plane<T, RandomState> {
     /// Creates new `Plane<T>` with internal `Grid<T>` of size 0.
     /// Basically identical to
     #[cfg_attr(feature = "i32", doc = "`HashMap<(i32, i32), T>`,")]
@@ -133,10 +133,17 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     pub fn inner_grid(&self) -> &Grid<T> {
         &self.grid
     }
-
+    #[inline]
+    pub fn inner_grid_mut(&mut self) -> &mut Grid<T> {
+        &mut self.grid
+    }
     #[inline]
     pub fn inner_hash_map(&self) -> &HashMap<(Scalar, Scalar), T, S> {
         &self.map
+    }
+    #[inline]
+    pub fn inner_hash_map_mut(&mut self) -> &mut HashMap<(Scalar, Scalar), T, S> {
+        &mut self.map
     }
 
     pub fn from_hash_map(
@@ -283,6 +290,41 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
         self.grid = new_grid;
         self.offset = (-x_min, -y_min);
     }
+
+    pub fn iter_all(&self) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
+        self.grid
+            .indexed_iter()
+            .map(move |((x, y), elem)| {
+                (
+                    (x as Scalar - self.offset.0, y as Scalar - self.offset.1),
+                    elem,
+                )
+            })
+            .chain(self.map.iter().map(|(vec, elem)| (*vec, elem)))
+    }
+
+    /// Mutably iterate over all the elements
+    pub fn iter_all_mut(&mut self) -> impl Iterator<Item = ((Scalar, Scalar), &mut T)> {
+        let offset = self.offset;
+
+        self.grid
+            .indexed_iter_mut()
+            .map(move |((x, y), elem)| ((x as Scalar - offset.0, y as Scalar - offset.1), elem))
+            .chain(self.map.iter_mut().map(|(vec, elem)| (*vec, elem)))
+    }
+
+    /// Consume plane-2d to get all the elements
+    pub fn into_iter_all(self) -> impl Iterator<Item = ((Scalar, Scalar), T)> {
+        self.grid
+            .into_iter_indexed()
+            .map(move |((x, y), elem)| {
+                (
+                    (x as Scalar - self.offset.0, y as Scalar - self.offset.1),
+                    elem,
+                )
+            })
+            .chain(self.map.into_iter())
+    }
 }
 
 impl<T, S: Default + BuildHasher> Plane<Option<T>, S> {
@@ -293,7 +335,7 @@ impl<T, S: Default + BuildHasher> Plane<Option<T>, S> {
             .filter_map(move |((x, y), elem)| {
                 elem.as_ref().map(|el| {
                     (
-                        (x as Scalar + self.offset.0, y as Scalar + self.offset.1),
+                        (x as Scalar - self.offset.0, y as Scalar - self.offset.1),
                         el,
                     )
                 })
@@ -313,7 +355,7 @@ impl<T, S: Default + BuildHasher> Plane<Option<T>, S> {
             .indexed_iter_mut()
             .filter_map(move |((x, y), elem)| {
                 elem.as_mut()
-                    .map(|el| ((x as Scalar + offset.0, y as Scalar + offset.1), el))
+                    .map(|el| ((x as Scalar - offset.0, y as Scalar - offset.1), el))
             })
             .chain(
                 self.map
@@ -329,7 +371,7 @@ impl<T, S: Default + BuildHasher> Plane<Option<T>, S> {
             .filter_map(move |((x, y), elem)| {
                 elem.map(|el| {
                     (
-                        (x as Scalar + self.offset.0, y as Scalar + self.offset.1),
+                        (x as Scalar - self.offset.0, y as Scalar - self.offset.1),
                         el,
                     )
                 })
@@ -351,5 +393,124 @@ impl<T: Default, S: Default + BuildHasher> From<Grid<T>> for Plane<T, S> {
 impl<T: Default, S: Default + BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane<T, S> {
     fn from(value: HashMap<(Scalar, Scalar), T, S>) -> Self {
         Self::from_hash_map(value, 0, 0, 0, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Plane;
+    use grid::{grid, Grid};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_iter() {
+        let grid: Grid<Option<i32>> = grid![
+            [Some(1), Some(2)]
+            [Some(3), Some(4)]
+        ];
+        let mut hash_map = HashMap::new();
+        hash_map.insert((23, 40), Some(19));
+        hash_map.insert((40, 40), Some(13));
+        let plane: Plane<Option<i32>> = Plane::from_grid_and_hash_map(grid, hash_map, 2, 2);
+
+        let mut elements: Vec<_> = plane.iter().map(|(a, v)| (a, *v)).collect();
+        elements.sort_by(|(_, v1), (_, v2)| v1.cmp(v2));
+
+        assert_eq!(
+            elements,
+            vec![
+                ((2, 2), 1),
+                ((2, 3), 2),
+                ((3, 2), 3),
+                ((3, 3), 4),
+                ((40, 40), 13),
+                ((23, 40), 19),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_iter_mut() {
+        let grid: Grid<Option<i32>> = grid![
+            [Some(1), Some(2)]
+            [Some(3), Some(4)]
+        ];
+        let mut hash_map = HashMap::new();
+        hash_map.insert((23, 40), Some(19));
+        hash_map.insert((40, 40), Some(13));
+
+        let mut plane: Plane<Option<i32>> = Plane::from_grid_and_hash_map(grid, hash_map, 2, 2);
+
+        for (_, elem) in plane.iter_mut() {
+            *elem += 1;
+        }
+
+        let mut elements: Vec<_> = plane.iter().map(|(a, v)| (a, *v)).collect();
+        elements.sort_by(|(_, v1), (_, v2)| v1.cmp(v2));
+
+        assert_eq!(
+            elements,
+            vec![
+                ((2, 2), 2),
+                ((2, 3), 3),
+                ((3, 2), 4),
+                ((3, 3), 5),
+                ((40, 40), 14),
+                ((23, 40), 20),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_into_iter() {
+        let grid: Grid<Option<i32>> = grid![
+            [Some(1), Some(2)]
+            [Some(3), Some(4)]
+        ];
+        let mut hash_map = HashMap::new();
+        hash_map.insert((23, 40), Some(19));
+        hash_map.insert((40, 40), Some(13));
+        let plane: Plane<Option<i32>> = Plane::from_grid_and_hash_map(grid, hash_map, 2, 2);
+
+        let mut elements: Vec<_> = plane.into_iter().collect();
+        elements.sort_by(|(_, v1), (_, v2)| v1.cmp(v2));
+
+        assert_eq!(
+            elements,
+            vec![
+                ((2, 2), 1),
+                ((2, 3), 2),
+                ((3, 2), 3),
+                ((3, 3), 4),
+                ((40, 40), 13),
+                ((23, 40), 19),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_default_initialization() {
+        let plane: Plane<Option<()>> = Plane::default();
+        let elements: Vec<_> = plane.into_iter().collect();
+
+        assert_eq!(elements.len(), 0);
+    }
+
+    #[test]
+    fn test_remove_element() {
+        let mut plane = Plane::default();
+
+        assert_eq!(plane.insert(Some(5), 1, 1), None);
+        assert_eq!(*plane.get(1, 1), Some(5));
+    }
+
+    #[test]
+    fn test_get_element_mut() {
+        let mut plane = Plane::default();
+        plane.insert(Some(8), 1, 1);
+        if let Some(elem) = plane.get_mut(1, 1) {
+            *elem = 10;
+        }
+        assert_eq!(*plane.get(1, 1), Some(10));
     }
 }
