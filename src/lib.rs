@@ -163,6 +163,11 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
         Self::from_grid_and_hash_map(grid, HashMap::default(), x_min, y_min)
     }
 
+    /// Creates instance of [`Plane<T>`] from [`Grid<T>`] and [`HashMap<(Scalar, Scalar), T>`]
+    /// # Note
+    /// Doesn't remove items from `map` if they are initialized and overlapping with `grid`. Their existence will be ignored.
+    /// When you are calling [`inner_hash_map`], [`inner_hash_map_mut`], [`iter_all`], [`iter_all_mut`] or [`into_iter_all`] 
+    /// those values may or may not still exist in the hash map. 
     pub fn from_grid_and_hash_map(
         grid: Grid<T>,
         map: HashMap<(Scalar, Scalar), T, S>,
@@ -232,7 +237,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     }
 
     /// Access a certain element on the plane-2d.
-    /// Returns [`default`] value if an uninitialized element is accessed.
+    /// Returns [`default`] value if uninitialized element is being accessed.
     pub fn get(&self, x: Scalar, y: Scalar) -> &T {
         if let Some((x, y)) = self.grid_coordinates_from_global(x, y) {
             // Safety: `grid_coordinates_from_global` is guaranteed to return Some
@@ -246,7 +251,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     }
 
     /// Mutable access to a certain element on the plane-2d.
-    /// Returns [`default`] value if an uninitialized element is tried to be accessed.
+    /// Returns [`default`] value if uninitialized element is being accessed.
     pub fn get_mut(&mut self, x: Scalar, y: Scalar) -> &mut T {
         if let Some((x, y)) = self.grid_coordinates_from_global(x, y) {
             // Safety: `grid_coordinates_from_global` is guaranteed to return Some
@@ -258,7 +263,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     }
 
     /// Insert element at the coordinate.
-    /// Returns value that was stored in a plane-2d or [`default`] value if element was uninitialized.
+    /// Returns [`default`] value if uninitialized element is being accessed.
     pub fn insert(&mut self, value: T, x: Scalar, y: Scalar) -> T {
         if let Some((x, y)) = self.grid_coordinates_from_global(x, y) {
             // Safety: safe since `within_grid_bounds` is guaranteed to return true
@@ -291,6 +296,45 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
         self.offset = (-x_min, -y_min);
     }
 
+    /// Iterates over all the items within the rectangle area inclusively.    
+    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Order of iteration deterministic for now, but can change in future versions .
+    pub fn foreach_in_area(
+        &self,
+        x_min: Scalar,
+        y_min: Scalar,
+        x_max: Scalar,
+        y_max: Scalar,
+        mut f: impl FnMut(&T, Scalar, Scalar),
+    ) {
+        // TODO: more effective algorithm
+        for x in x_min..=x_max {
+            for y in y_min..=y_max {
+                f(self.get(x, y), x, y);
+            }
+        }
+    }
+
+    /// Mutably iterates over all the items within the rectangle area inclusively.
+    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Order of iteration deterministic for now, but can change in future versions .
+    pub fn foreach_in_area_mut(
+        &mut self,
+        x_min: Scalar,
+        y_min: Scalar,
+        x_max: Scalar,
+        y_max: Scalar,
+        mut f: impl FnMut(&mut T, Scalar, Scalar),
+    ) {
+        // TODO: more effective algorithm
+        for x in x_min..=x_max {
+            for y in y_min..=y_max {
+                f(self.get_mut(x, y), x, y);
+            }
+        }
+    }
+    
+    /// Iterate over all the elements stored inside the grid and hashmap. May return value from HashMap even if it is overlapping with Grid   
     pub fn iter_all(&self) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
         self.grid
             .indexed_iter()
@@ -303,7 +347,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
             .chain(self.map.iter().map(|(vec, elem)| (*vec, elem)))
     }
 
-    /// Mutably iterate over all the elements
+    /// Mutably iterate over all the elements stored inside the grid and hashmap. May return value from HashMap even if it is overlapping with Grid   
     pub fn iter_all_mut(&mut self) -> impl Iterator<Item = ((Scalar, Scalar), &mut T)> {
         let offset = self.offset;
 
@@ -313,7 +357,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
             .chain(self.map.iter_mut().map(|(vec, elem)| (*vec, elem)))
     }
 
-    /// Consume plane-2d to get all the elements
+    /// Iterate over all the elements stored inside the grid and hashmap. May return value from HashMap even if it is overlapping with Grid   
     pub fn into_iter_all(self) -> impl Iterator<Item = ((Scalar, Scalar), T)> {
         self.grid
             .into_iter_indexed()
