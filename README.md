@@ -12,4 +12,4 @@ Most of the functions `std::Vec<T>` offer are also implemented in `grid` and sli
 
 # Memory layout
 Uses [grid](https://docs.rs/grid/0.14.0/grid/) crate to store a dense chunk of the grid and `HashMap<(i32, i32), T>`
-to store cells that are out of bounds fo the `Grid<T>`
+to store cells that are out of bounds of the `Grid<T>`

@@ -13,7 +13,7 @@ Most of the functions `std::Vec<T>` offer are also implemented in `grid` and sli
 
 # Memory layout
 Uses [grid](https://docs.rs/grid/0.14.0/grid/) crate to store a dense chunk of the grid and `HashMap<(i32, i32), T>`
-to store cells that are out of bounds fo the `[Grid<T>]` */
+to store cells that are out of bounds of the `[Grid<T>]` */
 
 #[cfg(all(not(feature = "i32"), not(feature = "i64")))]
 compile_error!("either feature \"i32\" or \"i64\" must be enabled");
@@ -91,7 +91,7 @@ impl<T> GridTrait<T> for Grid<T> {
 /// The size limit for the grid is `rows * cols < usize`.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Plane<T: Default, S: Default + BuildHasher = RandomState> {
+pub struct Plane<T: Default, S: BuildHasher = RandomState> {
     grid: Grid<T>,
     offset: (Scalar, Scalar),
     map: HashMap<(Scalar, Scalar), T, S>,
@@ -101,7 +101,12 @@ pub struct Plane<T: Default, S: Default + BuildHasher = RandomState> {
     default_value: Immutable<T>,
 }
 
-impl<T: Default> Default for Plane<T, RandomState> {
+#[inline]
+fn rows_cols(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> (usize, usize) {
+    ((x_max - x_min + 1) as usize, (y_max - y_min + 1) as usize)
+}
+
+impl<T: Default, S: Default + BuildHasher> Default for Plane<T, S> {
     /// Creates new `Plane<T>` with internal `Grid<T>` of size 0.
     /// Basically identical to
     #[cfg_attr(feature = "i32", doc = "`HashMap<(i32, i32), T>`,")]
@@ -117,16 +122,35 @@ impl<T: Default> Default for Plane<T, RandomState> {
     }
 }
 
-impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
-    #[inline]
-    pub fn rows_cols(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> (usize, usize) {
-        ((x_max - x_min + 1) as usize, (y_max - y_min + 1) as usize)
-    }
-
-    /// Returns [`Plane`] whose array-based grid is within specified bounds
+impl<T: Default> Plane<T, RandomState> {
     pub fn new(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> Self {
-        let (rows, cols): (usize, usize) = Self::rows_cols(x_min, y_min, x_max, y_max);
-        Self::from_grid_and_hash_map(Grid::new(rows, cols), HashMap::default(), x_min, y_min)
+        let (rows, cols): (usize, usize) = rows_cols(x_min, y_min, x_max, y_max);
+        Self::from_grid_and_hash_map(Grid::new(rows, cols), HashMap::new(), x_min, y_min)
+    }
+}
+
+impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
+    pub fn from_grid(grid: Grid<T>, x_min: Scalar, y_min: Scalar) -> Self {
+        Self::from_grid_and_hash_map(grid, HashMap::default(), x_min, y_min)
+    }
+}
+
+impl<T: Default, S: BuildHasher> Plane<T, S> {
+    /// Returns [`Plane`] whose array-based grid is within specified bounds
+    pub fn with_hasher(
+        x_min: Scalar,
+        y_min: Scalar,
+        x_max: Scalar,
+        y_max: Scalar,
+        hasher: S,
+    ) -> Self {
+        let (rows, cols): (usize, usize) = rows_cols(x_min, y_min, x_max, y_max);
+        Self::from_grid_and_hash_map(
+            Grid::new(rows, cols),
+            HashMap::with_hasher(hasher),
+            x_min,
+            y_min,
+        )
     }
 
     #[inline]
@@ -159,15 +183,15 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     }
 
     #[inline]
-    pub fn from_grid(grid: Grid<T>, x_min: Scalar, y_min: Scalar) -> Self {
-        Self::from_grid_and_hash_map(grid, HashMap::default(), x_min, y_min)
+    pub fn from_grid_with_hasher(grid: Grid<T>, x_min: Scalar, y_min: Scalar, hasher: S) -> Self {
+        Self::from_grid_and_hash_map(grid, HashMap::with_hasher(hasher), x_min, y_min)
     }
 
     /// Creates instance of [`Plane<T>`] from [`Grid<T>`] and [`HashMap<(Scalar, Scalar), T>`]
     /// # Note
     /// Doesn't remove items from `map` if they are initialized and overlapping with `grid`. Their existence will be ignored.
-    /// When you are calling [`inner_hash_map`], [`inner_hash_map_mut`], [`iter_all`], [`iter_all_mut`] or [`into_iter_all`] 
-    /// those values may or may not still exist in the hash map. 
+    /// When you are calling [`inner_hash_map`], [`inner_hash_map_mut`], [`iter_all`], [`iter_all_mut`] or [`into_iter_all`]
+    /// those values may or may not still exist in the hash map.
     pub fn from_grid_and_hash_map(
         grid: Grid<T>,
         map: HashMap<(Scalar, Scalar), T, S>,
@@ -277,7 +301,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     /// Changes position of  the base grid structure.
     /// Iterates over all elements in previous grid and all elements in new grid
     pub fn relocate_grid(&mut self, x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) {
-        let (rows, cols) = Self::rows_cols(x_min, y_min, x_max, y_max);
+        let (rows, cols) = rows_cols(x_min, y_min, x_max, y_max);
         let mut new_grid = Grid::new(rows, cols);
 
         let old_grid = std::mem::replace(&mut self.grid, Grid::new(0, 0));
@@ -296,44 +320,48 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
         self.offset = (-x_min, -y_min);
     }
 
-    /// Iterates over all the items within the rectangle area inclusively.    
+    /// Iterates over all the items within the rectangle area inclusively.
     /// Returns [`default`] value if uninitialized element is being accessed.
-    /// Order of iteration deterministic for now, but can change in future versions .
-    pub fn foreach_in_area(
+    /// Order of iteration is deterministic, but can change in future versions.
+    pub fn iter_rect(
         &self,
         x_min: Scalar,
         y_min: Scalar,
         x_max: Scalar,
         y_max: Scalar,
-        mut f: impl FnMut(&T, Scalar, Scalar),
-    ) {
-        // TODO: more effective algorithm
-        for x in x_min..=x_max {
-            for y in y_min..=y_max {
-                f(self.get(x, y), x, y);
-            }
-        }
+    ) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
+        (x_min..=x_max)
+            .map(move |x| (y_min..=y_max).map(move |y| ((x, y), self.get(x, y))))
+            .flatten()
     }
 
     /// Mutably iterates over all the items within the rectangle area inclusively.
     /// Returns [`default`] value if uninitialized element is being accessed.
-    /// Order of iteration deterministic for now, but can change in future versions .
-    pub fn foreach_in_area_mut(
+    /// Order of iteration is deterministic, but can change in future versions .
+    pub fn iter_rect_mut(
         &mut self,
         x_min: Scalar,
         y_min: Scalar,
         x_max: Scalar,
         y_max: Scalar,
-        mut f: impl FnMut(&mut T, Scalar, Scalar),
-    ) {
-        // TODO: more effective algorithm
-        for x in x_min..=x_max {
-            for y in y_min..=y_max {
-                f(self.get_mut(x, y), x, y);
-            }
-        }
+    ) -> impl Iterator<Item = ((Scalar, Scalar), &mut T)> {
+        let plane: *mut _ = self;
+
+        (x_min..=x_max)
+            .map(move |x| {
+                (y_min..=y_max).map(move |y| {
+                    (
+                        (x, y),
+                        // SAFETY: `plane` is only set to `self` which has suitable lifetime
+                        // none of the references returned twice since no pare of (x, y) is output twice
+                        // and get_mut is guaranteed to return unique memory address for unique (x, y) pare
+                        unsafe { &mut *plane }.get_mut(x, y),
+                    )
+                })
+            })
+            .flatten()
     }
-    
+
     /// Iterate over all the elements stored inside the grid and hashmap. May return value from HashMap even if it is overlapping with Grid   
     pub fn iter_all(&self) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
         self.grid
@@ -371,7 +399,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
     }
 }
 
-impl<T, S: Default + BuildHasher> Plane<Option<T>, S> {
+impl<T, S: BuildHasher> Plane<Option<T>, S> {
     /// Iterate over all the initialized elements
     pub fn iter(&self) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
         self.grid
@@ -434,7 +462,7 @@ impl<T: Default, S: Default + BuildHasher> From<Grid<T>> for Plane<T, S> {
     }
 }
 
-impl<T: Default, S: Default + BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane<T, S> {
+impl<T: Default, S: BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane<T, S> {
     fn from(value: HashMap<(Scalar, Scalar), T, S>) -> Self {
         Self::from_hash_map(value, 0, 0, 0, 0)
     }
@@ -541,20 +569,191 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_element() {
-        let mut plane = Plane::default();
+    fn test_inserting_element() {
+        let mut plane = Plane::new(1, 1, 4, 4);
+
+        assert_eq!(*plane.get(1, 1), None);
+        assert_eq!(*plane.get(4, 4), None);
+        assert_eq!(*plane.get(1, 100), None);
 
         assert_eq!(plane.insert(Some(5), 1, 1), None);
         assert_eq!(*plane.get(1, 1), Some(5));
+
+        assert_eq!(plane.insert(Some(6), -1, -1), None);
+        assert_eq!(*plane.get(-1, -1), Some(6));
+
+        assert_eq!(plane.insert(Some(8), -1, -1), Some(6));
+        assert_eq!(*plane.get(-1, -1), Some(8));
+
+        assert_eq!(plane.insert(Some(7), 4, 4), None);
+        assert_eq!(*plane.get(4, 4), Some(7));
+
+        assert_eq!(plane.insert(Some(9), 4, 4), Some(7));
+        assert_eq!(*plane.get(4, 4), Some(9));
     }
 
     #[test]
     fn test_get_element_mut() {
-        let mut plane = Plane::default();
+        let mut plane = Plane::new(1, 1, 4, 4);
         plane.insert(Some(8), 1, 1);
         if let Some(elem) = plane.get_mut(1, 1) {
             *elem = 10;
         }
         assert_eq!(*plane.get(1, 1), Some(10));
     }
+
+    #[test]
+    fn test_iter_rect() {
+        let mut plane = Plane::new(1, 1, 4, 4);
+        plane.insert((1, 1), 1, 1);
+        plane.insert((2, 1), 2, 1);
+        plane.insert((3, 1), 3, 1);
+        plane.insert((4, 1), 4, 1);
+        plane.insert((5, 1), 5, 1);
+        
+        plane.insert((1, 2), 1, 2);
+        plane.insert((2, 2), 2, 2);
+        plane.insert((3, 2), 3, 2);
+        plane.insert((4, 2), 4, 2);
+        plane.insert((5, 2), 5, 2);
+        
+        plane.insert((1, 3), 1, 3);
+        plane.insert((2, 3), 2, 3);
+        plane.insert((3, 3), 3, 3);
+        plane.insert((4, 3), 4, 3);
+        plane.insert((5, 3), 5, 3);
+
+        plane.insert((1, 4), 1, 4);
+        plane.insert((2, 4), 2, 4);
+        plane.insert((3, 4), 3, 4);
+        plane.insert((4, 4), 4, 4);
+        plane.insert((5, 4), 5, 4);
+
+        plane.insert((1, 5), 1, 5);
+        plane.insert((2, 5), 2, 5);
+        plane.insert((3, 5), 3, 5);
+        plane.insert((4, 5), 4, 5);
+        plane.insert((5, 5), 5, 5);
+
+        let mut value: Vec<_> = plane.iter_rect(2, 2, 6, 5).map(|(a, v)| (a, *v)).collect();
+        value.sort_by(
+            |((x1, y1), _), ((x2, y2), _)| {
+                if x1 == x2 {
+                    y1.cmp(y2)
+                } else {
+                    x1.cmp(x2)
+                }
+            },
+        );
+
+        assert_eq!(value, vec![
+            ((2, 2), (2, 2)),
+            ((2, 3), (2, 3)),
+            ((2, 4), (2, 4)),
+            ((2, 5), (2, 5)),
+
+            ((3, 2), (3, 2)),
+            ((3, 3), (3, 3)),
+            ((3, 4), (3, 4)),
+            ((3, 5), (3, 5)),
+
+            ((4, 2), (4, 2)),
+            ((4, 3), (4, 3)),
+            ((4, 4), (4, 4)),
+            ((4, 5), (4, 5)),
+
+            ((5, 2), (5, 2)),
+            ((5, 3), (5, 3)),
+            ((5, 4), (5, 4)),
+            ((5, 5), (5, 5)),
+            
+            ((6, 2), (0, 0)),
+            ((6, 3), (0, 0)),
+            ((6, 4), (0, 0)),
+            ((6, 5), (0, 0)),
+        ]);
+    }
+
+    #[test]
+    fn test_iter_rect_mut() {
+        let mut plane = Plane::new(1, 1, 4, 4);
+        plane.insert((1, 1), 1, 1);
+        plane.insert((2, 1), 2, 1);
+        plane.insert((3, 1), 3, 1);
+        plane.insert((4, 1), 4, 1);
+        plane.insert((5, 1), 5, 1);
+
+        plane.insert((1, 2), 1, 2);
+        plane.insert((2, 2), 2, 2);
+        plane.insert((3, 2), 3, 2);
+        plane.insert((4, 2), 4, 2);
+        plane.insert((5, 2), 5, 2);
+
+        plane.insert((1, 3), 1, 3);
+        plane.insert((2, 3), 2, 3);
+        plane.insert((3, 3), 3, 3);
+        plane.insert((4, 3), 4, 3);
+        plane.insert((5, 3), 5, 3);
+
+        plane.insert((1, 4), 1, 4);
+        plane.insert((2, 4), 2, 4);
+        plane.insert((3, 4), 3, 4);
+        plane.insert((4, 4), 4, 4);
+        plane.insert((5, 4), 5, 4);
+
+        plane.insert((1, 5), 1, 5);
+        plane.insert((2, 5), 2, 5);
+        plane.insert((3, 5), 3, 5);
+        plane.insert((4, 5), 4, 5);
+        plane.insert((5, 5), 5, 5);
+
+        plane.iter_rect_mut(3, 2, 6, 5).for_each(|(_, (xv, yv))| {
+            *xv += 10;
+            *yv += 20;
+        });
+
+        let mut value: Vec<_> = plane.iter_rect(2, 2, 7, 5).map(|(a, v)| (a, *v)).collect();
+        value.sort_by(
+            |((x1, y1), _), ((x2, y2), _)| {
+                if x1 == x2 {
+                    y1.cmp(y2)
+                } else {
+                    x1.cmp(x2)
+                }
+            },
+        );
+        
+        assert_eq!(value, vec![
+            ((2, 2), (2, 2)),
+            ((2, 3), (2, 3)),
+            ((2, 4), (2, 4)),
+            ((2, 5), (2, 5)),
+
+            ((3, 2), (13, 22)),
+            ((3, 3), (13, 23)),
+            ((3, 4), (13, 24)),
+            ((3, 5), (13, 25)),
+
+            ((4, 2), (14, 22)),
+            ((4, 3), (14, 23)),
+            ((4, 4), (14, 24)),
+            ((4, 5), (14, 25)),
+
+            ((5, 2), (15, 22)),
+            ((5, 3), (15, 23)),
+            ((5, 4), (15, 24)),
+            ((5, 5), (15, 25)),
+
+            ((6, 2), (10, 20)),
+            ((6, 3), (10, 20)),
+            ((6, 4), (10, 20)),
+            ((6, 5), (10, 20)),
+
+            ((7, 2), (0, 0)),
+            ((7, 3), (0, 0)),
+            ((7, 4), (0, 0)),
+            ((7, 5), (0, 0)),
+        ]);
+    }
+
 }

@@ -1,6 +1,6 @@
 [package]
 name = "plane-2d"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["vil'mo"]
 edition = "2021"
 description = "Continuous 2D data structure representing infinite 2d plane."
