@@ -123,13 +123,18 @@ impl<T: Default, S: Default + BuildHasher> Default for Plane<T, S> {
 }
 
 impl<T: Default> Plane<T, RandomState> {
+    #[inline]
     pub fn new(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> Self {
-        let (rows, cols): (usize, usize) = rows_cols(x_min, y_min, x_max, y_max);
-        Self::from_grid_and_hash_map(Grid::new(rows, cols), HashMap::new(), x_min, y_min)
+        Self::default_hasher(x_min, y_min, x_max, y_max)
     }
 }
 
 impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
+    #[inline]
+    pub fn default_hasher(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> Self {
+        Self::with_hasher(x_min, y_min, x_max, y_max, Default::default())
+    }
+    #[inline]
     pub fn from_grid(grid: Grid<T>, x_min: Scalar, y_min: Scalar) -> Self {
         Self::from_grid_and_hash_map(grid, HashMap::default(), x_min, y_min)
     }
@@ -457,12 +462,14 @@ impl<T, S: BuildHasher> Plane<Option<T>, S> {
 }
 
 impl<T: Default, S: Default + BuildHasher> From<Grid<T>> for Plane<T, S> {
+    #[inline]
     fn from(value: Grid<T>) -> Self {
         Self::from_grid(value, 0, 0)
     }
 }
 
 impl<T: Default, S: BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane<T, S> {
+    #[inline]
     fn from(value: HashMap<(Scalar, Scalar), T, S>) -> Self {
         Self::from_hash_map(value, 0, 0, 0, 0)
     }
