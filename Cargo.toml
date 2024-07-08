@@ -1,6 +1,6 @@
 [package]
 name = "plane-2d"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["vil'mo"]
 edition = "2021"
 description = "Continuous 2D data structure representing infinite 2d plane."
@@ -17,10 +17,11 @@ documentation = "https://docs.rs/plane-2d"
 default = ["i32"]
 i32 = []
 i64 = []
-serde = ["dep:serde", "grid/serde"]
+serde = ["dep:serde"]
+bevy_reflect = ["dep:bevy_reflect"]
 
 
 
 [dependencies]
-grid = { version = "0.14.0", features = ["std"] }
 serde = { version = "1.0", features = ["derive"], optional = true }
+bevy_reflect = { version = "0.14", optional = true }

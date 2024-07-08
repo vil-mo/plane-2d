@@ -21,14 +21,22 @@ compile_error!("either feature \"i32\" or \"i64\" must be enabled");
 #[cfg(all(feature = "i32", feature = "i64"))]
 compile_error!("feature \"i32\" and feature \"i64\" cannot be enabled at the same time");
 
+pub mod grid;
 pub mod immutable;
 
-use grid::{Grid, Order};
-use immutable::Immutable;
+#[cfg(feature = "bevy_reflect")]
+use bevy_reflect::Reflect;
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, Deserialize, Deserializer, MapAccess, Visitor},
+    ser::{Serialize, SerializeStruct, Serializer},
+};
+
+use grid::Grid;
+use immutable::Immutable;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
+use std::ops::{Index, IndexMut};
 
 #[cfg(feature = "i32")]
 type Scalar = i32;
@@ -36,28 +44,6 @@ type Scalar = i32;
 #[cfg(feature = "i64")]
 type Scalar = i64;
 
-trait GridTrait<T> {
-    fn into_iter_indexed(self) -> impl Iterator<Item = ((usize, usize), T)>;
-}
-
-impl<T> GridTrait<T> for Grid<T> {
-    fn into_iter_indexed(self) -> impl Iterator<Item = ((usize, usize), T)> {
-        let order = self.order();
-        let cols = self.cols();
-        let rows = self.rows();
-
-        self.into_vec()
-            .into_iter()
-            .enumerate()
-            .map(move |(idx, i)| {
-                let position = match order {
-                    Order::RowMajor => (idx / cols, idx % cols),
-                    Order::ColumnMajor => (idx % rows, idx / rows),
-                };
-                (position, i)
-            })
-    }
-}
 
 /// Stores elements of a certain type in a 2D grid structure on the whole 2D plane-2d, even in negative direction.
 ///
@@ -90,9 +76,10 @@ impl<T> GridTrait<T> for Grid<T> {
 ///
 /// The size limit for the grid is `rows * cols < usize`.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
 pub struct Plane<T: Default, S: BuildHasher = RandomState> {
     grid: Grid<T>,
+    // grid(x, y) = world(x, y) + offset
     offset: (Scalar, Scalar),
     map: HashMap<(Scalar, Scalar), T, S>,
 
@@ -100,6 +87,105 @@ pub struct Plane<T: Default, S: BuildHasher = RandomState> {
     /// and in case of the value being uninitialized, function should return reference to something with the lifetime of `self`.
     default_value: Immutable<T>,
 }
+
+
+#[cfg(feature = "serde")]
+impl<'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Deserialize<'de> for Plane<T, H> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use std::marker::PhantomData;
+        #[derive(serde::Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Offset,
+            Size,
+            Grid,
+            Map,
+        }
+
+        struct PlaneVisitor<T, H> {
+            _p: PhantomData<(T, H)>,
+        }
+
+        impl <'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Visitor<'de> for PlaneVisitor<T, H> {
+            type Value = Plane<T, H>;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("struct Grid")
+            }
+            
+            fn visit_map<V>(self, mut accsess: V) -> Result<Plane<T, H>, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut offset: Option<(Scalar, Scalar)> = None;
+                let mut size: Option<(Scalar, Scalar)> = None;
+                let mut grid = None;
+                let mut map = None;
+                while let Some(key) = accsess.next_key()? {
+                    match key {
+                        Field::Offset => {
+                            if offset.is_some() {
+                                return Err(de::Error::duplicate_field("offset"));
+                            }
+                            offset = Some(accsess.next_value()?);
+                        }
+                        Field::Size => {
+                            if size.is_some() {
+                                return Err(de::Error::duplicate_field("size"));
+                            }
+                            size = Some(accsess.next_value()?);
+                        }
+                        Field::Grid => {
+                            if grid.is_some() {
+                                return Err(de::Error::duplicate_field("grid"));
+                            }
+                            grid = Some(accsess.next_value()?);
+                        }
+                        Field::Map => {
+                            if map.is_some() {
+                                return Err(de::Error::duplicate_field("map"));
+                            }
+                            map = Some(accsess.next_value()?);
+                        }
+                    }
+                }
+
+                let (x_min, y_min) = offset.ok_or_else(|| de::Error::missing_field("offset"))?;
+                let map = map.ok_or_else(|| de::Error::missing_field("map"))?;
+                
+                if let Some(grid) = grid {
+                    Ok(Plane::from_grid_and_hash_map(grid, map, -x_min, -y_min))
+                } else if let Some((x_size, y_size)) = size {
+                    Ok(Plane::from_hash_map(map, -x_min, -y_min, x_size - x_min, y_size - y_min))
+                } else {
+                    Err(de::Error::missing_field("grid or size"))
+                }
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &["cols", "data", "order"];
+        deserializer.deserialize_struct("Grid", FIELDS, PlaneVisitor { _p: PhantomData })
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T: Default + Serialize, H: BuildHasher> Serialize for Plane<T, H> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // 3 is the number of fields in the struct.
+        let mut state = serializer.serialize_struct("Plane", 3)?;
+        state.serialize_field("offset", &self.offset)?;
+        state.serialize_field("grid", &self.grid)?;
+        state.serialize_field("map", &self.map)?;
+        state.end()
+    }
+}
+
 
 #[inline]
 fn rows_cols(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> (usize, usize) {
@@ -139,6 +225,7 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
         Self::from_grid_and_hash_map(grid, HashMap::default(), x_min, y_min)
     }
 }
+
 
 impl<T: Default, S: BuildHasher> Plane<T, S> {
     /// Returns [`Plane`] whose array-based grid is within specified bounds
@@ -404,6 +491,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
     }
 }
 
+
 impl<T, S: BuildHasher> Plane<Option<T>, S> {
     /// Iterate over all the initialized elements
     pub fn iter(&self) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
@@ -468,6 +556,7 @@ impl<T: Default, S: Default + BuildHasher> From<Grid<T>> for Plane<T, S> {
     }
 }
 
+
 impl<T: Default, S: BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane<T, S> {
     #[inline]
     fn from(value: HashMap<(Scalar, Scalar), T, S>) -> Self {
@@ -475,10 +564,25 @@ impl<T: Default, S: BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane
     }
 }
 
+impl <T: Default, S: BuildHasher> Index<(Scalar, Scalar)> for Plane<T, S> {
+    type Output = T;
+    #[inline]
+    fn index(&self, (x, y): (Scalar, Scalar)) -> &Self::Output {
+        self.get(x, y)
+    }
+}
+
+impl <T: Default, S: BuildHasher> IndexMut<(Scalar, Scalar)> for Plane<T, S> {
+    #[inline]
+    fn index_mut(&mut self, (x, y): (Scalar, Scalar)) -> &mut Self::Output {
+        self.get_mut(x, y)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Plane;
-    use grid::{grid, Grid};
+    use super::grid::{grid, Grid};
     use std::collections::HashMap;
 
     #[test]
@@ -617,13 +721,13 @@ mod tests {
         plane.insert((3, 1), 3, 1);
         plane.insert((4, 1), 4, 1);
         plane.insert((5, 1), 5, 1);
-        
+
         plane.insert((1, 2), 1, 2);
         plane.insert((2, 2), 2, 2);
         plane.insert((3, 2), 3, 2);
         plane.insert((4, 2), 4, 2);
         plane.insert((5, 2), 5, 2);
-        
+
         plane.insert((1, 3), 1, 3);
         plane.insert((2, 3), 2, 3);
         plane.insert((3, 3), 3, 3);
@@ -653,32 +757,31 @@ mod tests {
             },
         );
 
-        assert_eq!(value, vec![
-            ((2, 2), (2, 2)),
-            ((2, 3), (2, 3)),
-            ((2, 4), (2, 4)),
-            ((2, 5), (2, 5)),
-
-            ((3, 2), (3, 2)),
-            ((3, 3), (3, 3)),
-            ((3, 4), (3, 4)),
-            ((3, 5), (3, 5)),
-
-            ((4, 2), (4, 2)),
-            ((4, 3), (4, 3)),
-            ((4, 4), (4, 4)),
-            ((4, 5), (4, 5)),
-
-            ((5, 2), (5, 2)),
-            ((5, 3), (5, 3)),
-            ((5, 4), (5, 4)),
-            ((5, 5), (5, 5)),
-            
-            ((6, 2), (0, 0)),
-            ((6, 3), (0, 0)),
-            ((6, 4), (0, 0)),
-            ((6, 5), (0, 0)),
-        ]);
+        assert_eq!(
+            value,
+            vec![
+                ((2, 2), (2, 2)),
+                ((2, 3), (2, 3)),
+                ((2, 4), (2, 4)),
+                ((2, 5), (2, 5)),
+                ((3, 2), (3, 2)),
+                ((3, 3), (3, 3)),
+                ((3, 4), (3, 4)),
+                ((3, 5), (3, 5)),
+                ((4, 2), (4, 2)),
+                ((4, 3), (4, 3)),
+                ((4, 4), (4, 4)),
+                ((4, 5), (4, 5)),
+                ((5, 2), (5, 2)),
+                ((5, 3), (5, 3)),
+                ((5, 4), (5, 4)),
+                ((5, 5), (5, 5)),
+                ((6, 2), (0, 0)),
+                ((6, 3), (0, 0)),
+                ((6, 4), (0, 0)),
+                ((6, 5), (0, 0)),
+            ]
+        );
     }
 
     #[test]
@@ -729,38 +832,35 @@ mod tests {
                 }
             },
         );
-        
-        assert_eq!(value, vec![
-            ((2, 2), (2, 2)),
-            ((2, 3), (2, 3)),
-            ((2, 4), (2, 4)),
-            ((2, 5), (2, 5)),
 
-            ((3, 2), (13, 22)),
-            ((3, 3), (13, 23)),
-            ((3, 4), (13, 24)),
-            ((3, 5), (13, 25)),
-
-            ((4, 2), (14, 22)),
-            ((4, 3), (14, 23)),
-            ((4, 4), (14, 24)),
-            ((4, 5), (14, 25)),
-
-            ((5, 2), (15, 22)),
-            ((5, 3), (15, 23)),
-            ((5, 4), (15, 24)),
-            ((5, 5), (15, 25)),
-
-            ((6, 2), (10, 20)),
-            ((6, 3), (10, 20)),
-            ((6, 4), (10, 20)),
-            ((6, 5), (10, 20)),
-
-            ((7, 2), (0, 0)),
-            ((7, 3), (0, 0)),
-            ((7, 4), (0, 0)),
-            ((7, 5), (0, 0)),
-        ]);
+        assert_eq!(
+            value,
+            vec![
+                ((2, 2), (2, 2)),
+                ((2, 3), (2, 3)),
+                ((2, 4), (2, 4)),
+                ((2, 5), (2, 5)),
+                ((3, 2), (13, 22)),
+                ((3, 3), (13, 23)),
+                ((3, 4), (13, 24)),
+                ((3, 5), (13, 25)),
+                ((4, 2), (14, 22)),
+                ((4, 3), (14, 23)),
+                ((4, 4), (14, 24)),
+                ((4, 5), (14, 25)),
+                ((5, 2), (15, 22)),
+                ((5, 3), (15, 23)),
+                ((5, 4), (15, 24)),
+                ((5, 5), (15, 25)),
+                ((6, 2), (10, 20)),
+                ((6, 3), (10, 20)),
+                ((6, 4), (10, 20)),
+                ((6, 5), (10, 20)),
+                ((7, 2), (0, 0)),
+                ((7, 3), (0, 0)),
+                ((7, 4), (0, 0)),
+                ((7, 5), (0, 0)),
+            ]
+        );
     }
-
 }
