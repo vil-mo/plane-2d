@@ -117,7 +117,7 @@ macro_rules! grid {
             $( vec.push($x0); )*
             $( $( vec.push($x); )* )*
 
-            $crate::Grid::from_vec(vec, cols)
+            $crate::grid::Grid::from_vec(vec, cols)
         }
     };
 }
@@ -151,12 +151,12 @@ macro_rules! grid {
 #[macro_export]
 macro_rules! grid_cm {
     () => {
-        $crate::Grid::from_vec_with_order(vec![], 0, $crate::Order::ColumnMajor)
+        $crate::grid::Grid::from_vec_with_order(vec![], 0, $crate::grid::Order::ColumnMajor)
     };
     ( [$( $x:expr ),* ]) => { {
         let vec = vec![$($x),*];
         let len  = vec.len();
-        $crate::Grid::from_vec_with_order(vec, len, $crate::Order::ColumnMajor)
+        $crate::Grid::from_vec_with_order(vec, len, $crate::grid::Order::ColumnMajor)
     } };
     ( [$( $x0:expr ),*] $([$( $x:expr ),*])* ) => {
         {
@@ -171,7 +171,7 @@ macro_rules! grid_cm {
             )*
 
             let vec = Vec::with_capacity(rows.checked_mul(cols).unwrap());
-            let mut grid = $crate::Grid::from_vec_with_order(vec, cols, $crate::Order::ColumnMajor);
+            let mut grid = $crate::Grid::from_vec_with_order(vec, cols, $crate::grid::Order::ColumnMajor);
 
             grid.push_row(vec![$($x0),*]);
             $( grid.push_row(vec![$($x),*]); )*

@@ -32,17 +32,25 @@ use serde::{
     ser::{Serialize, SerializeStruct, Serializer},
 };
 
-use grid::Grid;
-use immutable::Immutable;
-use std::collections::HashMap;
-use std::hash::{BuildHasher, RandomState};
+pub use grid::Grid;
+pub use immutable::Immutable;
+use std::hash::BuildHasher;
 use std::ops::{Index, IndexMut};
 
 #[cfg(feature = "i32")]
 type Scalar = i32;
-
 #[cfg(feature = "i64")]
 type Scalar = i64;
+#[cfg(feature = "hashbrown")]
+use hashbrown::HashMap;
+#[cfg(not(feature = "hashbrown"))]
+use std::collections::HashMap;
+
+
+#[cfg(feature = "hashbrown")]
+pub type DefaultHashBuilder = hashbrown::hash_map::DefaultHashBuilder;
+#[cfg(not(feature = "hashbrown"))]
+pub type DefaultHashBuilder = std::hash::RandomState;
 
 
 /// Stores elements of a certain type in a 2D grid structure on the whole 2D plane-2d, even in negative direction.
@@ -77,7 +85,7 @@ type Scalar = i64;
 /// The size limit for the grid is `rows * cols < usize`.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
-pub struct Plane<T: Default, S: BuildHasher = RandomState> {
+pub struct Plane<T: Default, S: BuildHasher = DefaultHashBuilder> {
     grid: Grid<T>,
     // grid(x, y) = world(x, y) + offset
     offset: (Scalar, Scalar),
@@ -208,7 +216,7 @@ impl<T: Default, S: Default + BuildHasher> Default for Plane<T, S> {
     }
 }
 
-impl<T: Default> Plane<T, RandomState> {
+impl<T: Default> Plane<T, DefaultHashBuilder> {
     #[inline]
     pub fn new(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> Self {
         Self::default_hasher(x_min, y_min, x_max, y_max)
@@ -583,8 +591,11 @@ impl <T: Default, S: BuildHasher> IndexMut<(Scalar, Scalar)> for Plane<T, S> {
 mod tests {
     use super::Plane;
     use super::grid::{grid, Grid};
+    #[cfg(feature = "hashbrown")]
+    use hashbrown::HashMap;
+    #[cfg(not(feature = "hashbrown"))]
     use std::collections::HashMap;
-
+    
     #[test]
     fn test_iter() {
         let grid: Grid<Option<i32>> = grid![
