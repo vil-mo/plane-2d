@@ -48,6 +48,7 @@ use serde::{
 #[cfg(feature = "bevy_reflect")]
 use bevy_reflect::Reflect;
 
+
 use core::cmp::Eq;
 use core::fmt;
 use core::hash;
@@ -122,7 +123,6 @@ macro_rules! grid {
     };
 }
 
-
 /// Init a column-major grid with values.
 ///
 /// Each array within `[]` represents a row starting from top to button.
@@ -180,7 +180,6 @@ macro_rules! grid_cm {
         }
     };
 }
-
 
 pub use grid;
 pub use grid_cm;
@@ -858,6 +857,7 @@ impl<T> Grid<T> {
         })
     }
 
+    ///
     pub fn into_iter_indexed(self) -> impl Iterator<Item = ((usize, usize), T)> {
         let order = self.order();
         let cols = self.cols();
@@ -874,7 +874,6 @@ impl<T> Grid<T> {
                 (position, i)
             })
     }
-
 
     /// Add a new row to the grid.
     ///
@@ -1669,6 +1668,7 @@ impl<T: Clone> From<(&Vec<T>, &usize)> for Grid<T> {
     }
 }
 
+///
 #[derive(Clone)]
 pub struct GridRowIter<'a, T> {
     grid: &'a Grid<T>,
@@ -1676,6 +1676,7 @@ pub struct GridRowIter<'a, T> {
     row_end_index: usize,
 }
 
+///
 #[derive(Clone)]
 pub struct GridColIter<'a, T> {
     grid: &'a Grid<T>,

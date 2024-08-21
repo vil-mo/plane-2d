@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
 /// Helper struct that insures that inner value can't be mutated even if user has mutable access to it.
+#[repr(transparent)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bevy_reflect", derive(Reflect))]

@@ -1,19 +1,21 @@
-#![warn(clippy::restriction)]
-/*! # Two Dimensional Plane
-Continuous 2D data structure representing infinite 2d plane.
-The purpose of this crate is to provide a universal data structure that is faster
-than a naive`HashMap<(i32, i32), T>`
-solution.
-
-This crate will always provide a 2D data structure. If you need three or more dimensions take a look at the
-other libraries. The `grid` crate is a container for all kinds of data that implement [`Default`] trait.
-You can use [`Option<T>`] to store any kind of data.
-No other dependencies except for the std lib are used.
-Most of the functions `std::Vec<T>` offer are also implemented in `grid` and slightly modified for a 2D data object.
-
-# Memory layout
-Uses [grid](https://docs.rs/grid/0.14.0/grid/) crate to store a dense chunk of the grid and `HashMap<(i32, i32), T>`
-to store cells that are out of bounds of the `[Grid<T>]` */
+//! # Two Dimensional Plane
+//! Models continuous, infinitely big (within integer and storage limits) 2D data structure.
+//! The purpose of this crate is to provide a data structure that is faster
+//! than a `HashMap<(i32, i32), T>` in specific scenarios and provides better API
+//! for working with 2D plane.
+//!
+//! This crate will always provide a 2D data structure.
+//! The `Plane<T>` type is a container for all kinds of data that implement `Default` trait.
+//! You can use `Option<T>` to store optionally initialized data.
+//!
+//! No other dependencies except for the std lib are used,
+//! besides dependencies hidden behind feature flags.
+//!
+//! # Memory layout
+//! Uses almost exact copy of [grid](https://docs.rs/grid/0.14.0/grid/) crate to use `Grid<T>` type.
+//! Stores a dense chunk of the plane in `Vec<T>` (`Grid<T>`, provided by copy of the `grid` crate)
+//! and `HashMap<(i32, i32), T>` to store cells that are out of bounds of the `Grid<T>`.
+//! Unlike `HashMap<(i32, i32), T>`, two allocations are being done.
 
 #[cfg(all(not(feature = "i32"), not(feature = "i64")))]
 compile_error!("either feature \"i32\" or \"i64\" must be enabled");
@@ -21,11 +23,14 @@ compile_error!("either feature \"i32\" or \"i64\" must be enabled");
 #[cfg(all(feature = "i32", feature = "i64"))]
 compile_error!("feature \"i32\" and feature \"i64\" cannot be enabled at the same time");
 
+#[warn(missing_docs)]
+
 pub mod grid;
 pub mod immutable;
 
 #[cfg(feature = "bevy_reflect")]
 use bevy_reflect::Reflect;
+
 #[cfg(feature = "serde")]
 use serde::{
     de::{self, Deserialize, Deserializer, MapAccess, Visitor},
@@ -37,25 +42,27 @@ pub use immutable::Immutable;
 use std::hash::BuildHasher;
 use std::ops::{Index, IndexMut};
 
+
 #[cfg(feature = "i32")]
 type Scalar = i32;
 #[cfg(feature = "i64")]
 type Scalar = i64;
+
 #[cfg(feature = "hashbrown")]
 use hashbrown::HashMap;
 #[cfg(not(feature = "hashbrown"))]
 use std::collections::HashMap;
 
-
+/// Default type used
 #[cfg(feature = "hashbrown")]
 pub type DefaultHashBuilder = hashbrown::hash_map::DefaultHashBuilder;
+/// Default hash builder used for the inner `HashMap`.
 #[cfg(not(feature = "hashbrown"))]
 pub type DefaultHashBuilder = std::hash::RandomState;
 
-
-/// Stores elements of a certain type in a 2D grid structure on the whole 2D plane-2d, even in negative direction.
+/// Stores elements of a certain type in an integer grid, even in negative direction.
 ///
-/// Uses [`Grid<T>`] type in a [grid](https://docs.rs/grid/0.14.0/grid/) crate
+/// Uses [`Grid<T>`] type from a [grid](https://docs.rs/grid/0.14.0/grid/) crate
 /// and a
 #[cfg_attr(feature = "i32", doc = "`HashMap<(i32, i32), T>`")]
 #[cfg_attr(feature = "i64", doc = "`HashMap<(i64, i64), T>`")]
@@ -63,10 +70,9 @@ pub type DefaultHashBuilder = std::hash::RandomState;
 ///
 /// Data in [`Grid<T>`] is stored inside one dimensional array using [`Vec<T>`].
 /// This is cash efficient, so it is recommended to store there dense regions of data,
-/// but it is memory inefficient - it keeps memory for `rows * cols` cells,
+/// but it is memory inefficient if you don't need much space - it keeps memory for `rows * cols` cells,
 /// so if there are only two cells in use - one is placed on coordinate `(0,0)` and other is on `(100,100)`,
 /// there is space reserved for at least `10000` elements.
-///
 /// Using [`HashMap`] solves that problem - it stores data outside the grid bounds.
 ///
 /// Note that if the size of the Grid is zero, this data structure is identical to the
@@ -81,8 +87,6 @@ pub type DefaultHashBuilder = std::hash::RandomState;
 /// and you can access any point of it at any time.
 /// Whenever uninitialized cell is accessed, default value is returned.
 /// For optionally initialized data use [`Option<T>`].
-///
-/// The size limit for the grid is `rows * cols < usize`.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bevy_reflect", derive(Reflect))]
 pub struct Plane<T: Default, S: BuildHasher = DefaultHashBuilder> {
@@ -96,9 +100,10 @@ pub struct Plane<T: Default, S: BuildHasher = DefaultHashBuilder> {
     default_value: Immutable<T>,
 }
 
-
 #[cfg(feature = "serde")]
-impl<'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Deserialize<'de> for Plane<T, H> {
+impl<'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Deserialize<'de>
+    for Plane<T, H>
+{
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -117,13 +122,15 @@ impl<'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Deserialize<'
             _p: PhantomData<(T, H)>,
         }
 
-        impl <'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Visitor<'de> for PlaneVisitor<T, H> {
+        impl<'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Visitor<'de>
+            for PlaneVisitor<T, H>
+        {
             type Value = Plane<T, H>;
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                 formatter.write_str("struct Grid")
             }
-            
+
             fn visit_map<V>(self, mut accsess: V) -> Result<Plane<T, H>, V::Error>
             where
                 V: MapAccess<'de>,
@@ -163,11 +170,17 @@ impl<'de, T: Default + Deserialize<'de>, H: Default + BuildHasher> Deserialize<'
 
                 let (x_min, y_min) = offset.ok_or_else(|| de::Error::missing_field("offset"))?;
                 let map = map.ok_or_else(|| de::Error::missing_field("map"))?;
-                
+
                 if let Some(grid) = grid {
                     Ok(Plane::from_grid_and_hash_map(grid, map, -x_min, -y_min))
                 } else if let Some((x_size, y_size)) = size {
-                    Ok(Plane::from_hash_map(map, -x_min, -y_min, x_size - x_min, y_size - y_min))
+                    Ok(Plane::from_hash_map(
+                        map,
+                        -x_min,
+                        -y_min,
+                        x_size - x_min,
+                        y_size - y_min,
+                    ))
                 } else {
                     Err(de::Error::missing_field("grid or size"))
                 }
@@ -193,7 +206,6 @@ impl<T: Default + Serialize, H: BuildHasher> Serialize for Plane<T, H> {
         state.end()
     }
 }
-
 
 #[inline]
 fn rows_cols(x_min: Scalar, y_min: Scalar, x_max: Scalar, y_max: Scalar) -> (usize, usize) {
@@ -233,7 +245,6 @@ impl<T: Default, S: Default + BuildHasher> Plane<T, S> {
         Self::from_grid_and_hash_map(grid, HashMap::default(), x_min, y_min)
     }
 }
-
 
 impl<T: Default, S: BuildHasher> Plane<T, S> {
     /// Returns [`Plane`] whose array-based grid is within specified bounds
@@ -290,7 +301,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
     /// Creates instance of [`Plane<T>`] from [`Grid<T>`] and [`HashMap<(Scalar, Scalar), T>`]
     /// # Note
     /// Doesn't remove items from `map` if they are initialized and overlapping with `grid`. Their existence will be ignored.
-    /// When you are calling [`inner_hash_map`], [`inner_hash_map_mut`], [`iter_all`], [`iter_all_mut`] or [`into_iter_all`]
+    /// When you are calling [`Plane::inner_hash_map`], [`Plane::inner_hash_map_mut`], [`Plane::iter_all`], [`Plane::iter_all_mut`] or [`Plane::into_iter_all`]
     /// those values may or may not still exist in the hash map.
     pub fn from_grid_and_hash_map(
         grid: Grid<T>,
@@ -361,7 +372,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
     }
 
     /// Access a certain element on the plane-2d.
-    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Returns [`Default`] value if uninitialized element is being accessed.
     pub fn get(&self, x: Scalar, y: Scalar) -> &T {
         if let Some((x, y)) = self.grid_coordinates_from_global(x, y) {
             // Safety: `grid_coordinates_from_global` is guaranteed to return Some
@@ -375,7 +386,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
     }
 
     /// Mutable access to a certain element on the plane-2d.
-    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Returns [`Default`] value if uninitialized element is being accessed.
     pub fn get_mut(&mut self, x: Scalar, y: Scalar) -> &mut T {
         if let Some((x, y)) = self.grid_coordinates_from_global(x, y) {
             // Safety: `grid_coordinates_from_global` is guaranteed to return Some
@@ -387,7 +398,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
     }
 
     /// Insert element at the coordinate.
-    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Returns [`Default`] value if uninitialized element is being accessed.
     pub fn insert(&mut self, value: T, x: Scalar, y: Scalar) -> T {
         if let Some((x, y)) = self.grid_coordinates_from_global(x, y) {
             // Safety: safe since `within_grid_bounds` is guaranteed to return true
@@ -421,7 +432,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
     }
 
     /// Iterates over all the items within the rectangle area inclusively.
-    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Returns [`Default`] value if uninitialized element is being accessed.
     /// Order of iteration is deterministic, but can change in future versions.
     pub fn iter_rect(
         &self,
@@ -431,12 +442,11 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
         y_max: Scalar,
     ) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
         (x_min..=x_max)
-            .map(move |x| (y_min..=y_max).map(move |y| ((x, y), self.get(x, y))))
-            .flatten()
+            .flat_map(move |x| (y_min..=y_max).map(move |y| ((x, y), self.get(x, y))))
     }
 
     /// Mutably iterates over all the items within the rectangle area inclusively.
-    /// Returns [`default`] value if uninitialized element is being accessed.
+    /// Returns [`Default`] value if uninitialized element is being accessed.
     /// Order of iteration is deterministic, but can change in future versions .
     pub fn iter_rect_mut(
         &mut self,
@@ -448,7 +458,7 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
         let plane: *mut _ = self;
 
         (x_min..=x_max)
-            .map(move |x| {
+            .flat_map(move |x| {
                 (y_min..=y_max).map(move |y| {
                     (
                         (x, y),
@@ -459,7 +469,6 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
                     )
                 })
             })
-            .flatten()
     }
 
     /// Iterate over all the elements stored inside the grid and hashmap. May return value from HashMap even if it is overlapping with Grid   
@@ -495,10 +504,9 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
                     elem,
                 )
             })
-            .chain(self.map.into_iter())
+            .chain(self.map)
     }
 }
-
 
 impl<T, S: BuildHasher> Plane<Option<T>, S> {
     /// Iterate over all the initialized elements
@@ -564,7 +572,6 @@ impl<T: Default, S: Default + BuildHasher> From<Grid<T>> for Plane<T, S> {
     }
 }
 
-
 impl<T: Default, S: BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane<T, S> {
     #[inline]
     fn from(value: HashMap<(Scalar, Scalar), T, S>) -> Self {
@@ -572,7 +579,7 @@ impl<T: Default, S: BuildHasher> From<HashMap<(Scalar, Scalar), T, S>> for Plane
     }
 }
 
-impl <T: Default, S: BuildHasher> Index<(Scalar, Scalar)> for Plane<T, S> {
+impl<T: Default, S: BuildHasher> Index<(Scalar, Scalar)> for Plane<T, S> {
     type Output = T;
     #[inline]
     fn index(&self, (x, y): (Scalar, Scalar)) -> &Self::Output {
@@ -580,7 +587,7 @@ impl <T: Default, S: BuildHasher> Index<(Scalar, Scalar)> for Plane<T, S> {
     }
 }
 
-impl <T: Default, S: BuildHasher> IndexMut<(Scalar, Scalar)> for Plane<T, S> {
+impl<T: Default, S: BuildHasher> IndexMut<(Scalar, Scalar)> for Plane<T, S> {
     #[inline]
     fn index_mut(&mut self, (x, y): (Scalar, Scalar)) -> &mut Self::Output {
         self.get_mut(x, y)
@@ -589,13 +596,13 @@ impl <T: Default, S: BuildHasher> IndexMut<(Scalar, Scalar)> for Plane<T, S> {
 
 #[cfg(test)]
 mod tests {
-    use super::Plane;
     use super::grid::{grid, Grid};
+    use super::Plane;
     #[cfg(feature = "hashbrown")]
     use hashbrown::HashMap;
     #[cfg(not(feature = "hashbrown"))]
     use std::collections::HashMap;
-    
+
     #[test]
     fn test_iter() {
         let grid: Grid<Option<i32>> = grid![
