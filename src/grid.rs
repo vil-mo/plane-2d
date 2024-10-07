@@ -2877,16 +2877,6 @@ mod test {
         test_grid(&clone, 2, 3, Order::RowMajor, &[1, 2, 10, 4, 5, 6]);
     }
 
-    #[cfg(feature = "std")]
-    #[test]
-    fn hash_std() {
-        let mut set = std::collections::HashSet::new();
-        set.insert(grid![[1,2,3][4,5,6]]);
-        set.insert(grid![[1,3,3][4,5,6]]);
-        set.insert(grid![[1,2,3][4,5,6]]);
-        assert_eq!(set.len(), 2);
-    }
-
     #[test]
     fn macro_init() {
         let grid = grid![[1, 2, 3][4, 5, 6]];

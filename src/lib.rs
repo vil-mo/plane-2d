@@ -24,7 +24,6 @@ compile_error!("either feature \"i32\" or \"i64\" must be enabled");
 compile_error!("feature \"i32\" and feature \"i64\" cannot be enabled at the same time");
 
 #[warn(missing_docs)]
-
 pub mod grid;
 pub mod immutable;
 
@@ -41,7 +40,6 @@ pub use grid::Grid;
 pub use immutable::Immutable;
 use std::hash::BuildHasher;
 use std::ops::{Index, IndexMut};
-
 
 #[cfg(feature = "i32")]
 type Scalar = i32;
@@ -441,34 +439,25 @@ impl<T: Default, S: BuildHasher> Plane<T, S> {
         x_max: Scalar,
         y_max: Scalar,
     ) -> impl Iterator<Item = ((Scalar, Scalar), &T)> {
-        (x_min..=x_max)
-            .flat_map(move |x| (y_min..=y_max).map(move |y| ((x, y), self.get(x, y))))
+        (x_min..=x_max).flat_map(move |x| (y_min..=y_max).map(move |y| ((x, y), self.get(x, y))))
     }
 
     /// Mutably iterates over all the items within the rectangle area inclusively.
     /// Returns [`Default`] value if uninitialized element is being accessed.
     /// Order of iteration is deterministic, but can change in future versions .
-    pub fn iter_rect_mut(
+    pub fn foreach_rect_mut(
         &mut self,
         x_min: Scalar,
         y_min: Scalar,
         x_max: Scalar,
         y_max: Scalar,
-    ) -> impl Iterator<Item = ((Scalar, Scalar), &mut T)> {
-        let plane: *mut _ = self;
-
-        (x_min..=x_max)
-            .flat_map(move |x| {
-                (y_min..=y_max).map(move |y| {
-                    (
-                        (x, y),
-                        // SAFETY: `plane` is only set to `self` which has suitable lifetime
-                        // none of the references returned twice since no pare of (x, y) is output twice
-                        // and get_mut is guaranteed to return unique memory address for unique (x, y) pare
-                        unsafe { &mut *plane }.get_mut(x, y),
-                    )
-                })
-            })
+        mut func: impl FnMut((Scalar, Scalar), &mut T),
+    ) {
+        for x in x_min..=x_max {
+            for y in y_min..=y_max {
+                func((x, y), self.get_mut(x, y))
+            }
+        }
     }
 
     /// Iterate over all the elements stored inside the grid and hashmap. May return value from HashMap even if it is overlapping with Grid   
@@ -835,7 +824,7 @@ mod tests {
         plane.insert((4, 5), 4, 5);
         plane.insert((5, 5), 5, 5);
 
-        plane.iter_rect_mut(3, 2, 6, 5).for_each(|(_, (xv, yv))| {
+        plane.foreach_rect_mut(3, 2, 6, 5, |_, (xv, yv)| {
             *xv += 10;
             *yv += 20;
         });
